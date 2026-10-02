@@ -1,3 +1,3 @@
-module statusbar-codex
+module codex-usage
 
 go 1.23

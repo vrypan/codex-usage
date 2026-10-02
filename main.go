@@ -16,21 +16,20 @@ import (
 const version = "0.1.0"
 
 type options struct {
-	codex, statusbar, socket, bucket, thread string
-	interval, usageInterval, timeout         time.Duration
-	color, bars, stdout, keep, json          bool
-	embedded                                 bool
-	width                                    int
+	codex, socket, bucket, thread    string
+	interval, usageInterval, timeout time.Duration
+	color, bars, json                bool
+	width                            int
 }
 
 func parse(args []string) (string, options, error) {
 	o := options{}
 	if len(args) == 0 {
-		return "", o, errors.New("usage: statusbar-codex <snapshot|watch|version> [options]")
+		return "", o, errors.New("usage: codex-usage <snapshot|watch|version> [options]")
 	}
 	mode := args[0]
 	if mode == "--help" || mode == "-h" {
-		fmt.Println("Usage: statusbar-codex <snapshot|watch|version> [options]\n\nSnapshot reads Codex usage; watch updates a statusbar line.\nUse snapshot --help or watch --help for options.")
+		fmt.Println("Usage: codex-usage <snapshot|watch|version> [options]\n\nSnapshot reads Codex usage; watch prints updates.\nUse snapshot --help or watch --help for options.")
 		return "", o, flag.ErrHelp
 	}
 	if mode == "version" {
@@ -41,18 +40,15 @@ func parse(args []string) (string, options, error) {
 	}
 	f := flag.NewFlagSet(mode, flag.ContinueOnError)
 	f.StringVar(&o.codex, "codex", "codex", "Codex executable")
-	f.StringVar(&o.statusbar, "statusbar", "statusbar", "statusbar executable")
 	f.StringVar(&o.socket, "socket", "", "explicit Codex daemon socket")
 	f.StringVar(&o.bucket, "bucket", "", "quota bucket (default: codex, otherwise first sorted bucket)")
 	f.StringVar(&o.thread, "thread", "", "thread ID for read-only estimated usage")
 	f.DurationVar(&o.interval, "interval", time.Minute, "quota and thread usage refresh interval")
 	f.DurationVar(&o.usageInterval, "usage-interval", 5*time.Minute, "account token activity refresh interval")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Second, "timeout for each RPC call")
-	f.IntVar(&o.width, "width", 0, "explicit output width; 0 leaves clipping to statusbar")
+	f.IntVar(&o.width, "width", 0, "maximum output width; 0 disables clipping")
 	f.BoolVar(&o.bars, "bars", true, "show thin quota meters")
 	f.BoolVar(&o.json, "json", false, "snapshot: print structured JSON")
-	f.BoolVar(&o.stdout, "stdout", false, "watch: emit changed lines to stdout instead of statusbar")
-	f.BoolVar(&o.keep, "keep", false, "watch: keep the owned line on exit")
 	var color string
 	f.StringVar(&color, "color", "auto", "auto, always, or never")
 	if err := f.Parse(args[1:]); err != nil {
@@ -74,7 +70,7 @@ func parse(args []string) (string, options, error) {
 		o.color = false
 	case "auto":
 		info, err := os.Stdout.Stat()
-		o.color = (mode == "watch" && !o.stdout) || (err == nil && info.Mode()&os.ModeCharDevice != 0)
+		o.color = err == nil && info.Mode()&os.ModeCharDevice != 0
 	default:
 		return "", o, errors.New("color must be auto, always, or never")
 	}
@@ -176,40 +172,10 @@ func snapshot(ctx context.Context, o options) error {
 	}
 	return nil
 }
-func acquireLock(o options) (func(), error) {
-	if o.stdout {
-		return func() {}, nil
-	}
-	path := os.Getenv("STATUSBAR_STATE")
-	if path == "" {
-		return nil, errors.New("watch must run inside statusbar; use --stdout for text output")
-	}
-	// One named codex line can be owned by only one helper in this session.
-	f, err := os.OpenFile(path+".codex.lock", os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		return nil, errors.New("a codex line helper is already running in this statusbar session")
-	}
-	// Do not unlink: another process could already hold the same inode open.
-	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }, nil
-}
 func watch(ctx context.Context, o options) error {
-	unlock, err := acquireLock(o)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	output, err := newSink(ctx, o)
-	if err != nil {
-		return err
-	}
-	defer output.close()
-	o.embedded = !output.stdout
 	s := state{}
 	var c *rpcClient
+	var err error
 	defer func() {
 		if c != nil {
 			c.close()
@@ -219,22 +185,13 @@ func watch(ctx context.Context, o options) error {
 	defer ticker.Stop()
 	retryAt := time.Time{}
 	delay := time.Second
-	var lastLimits, lastUsage, lastAlive time.Time
+	var lastLimits, lastUsage time.Time
 	dirty := false
+	previous := ""
 	for {
 		now := time.Now()
 		if ctx.Err() != nil {
 			return nil
-		}
-		if now.Sub(lastAlive) >= 5*time.Second {
-			alive, checkErr := output.alive(ctx)
-			if checkErr != nil {
-				return checkErr
-			}
-			if !alive {
-				return errors.New("statusbar session or owned line is gone")
-			}
-			lastAlive = now
 		}
 		if c == nil && !now.Before(retryAt) {
 			c, err = connect(ctx, o)
@@ -275,11 +232,15 @@ func watch(ctx context.Context, o options) error {
 				}
 			}
 		}
-		if err = output.write(ctx, render(s, o, time.Now())); err != nil {
-			if ctx.Err() != nil {
-				return nil
+		text := render(s, o, time.Now())
+		if text != previous {
+			if _, err = fmt.Fprintln(os.Stdout, text); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return err
 			}
-			return err
+			previous = text
 		}
 		var notifications <-chan rpcMessage
 		var disconnected <-chan struct{}
@@ -318,7 +279,7 @@ func main() {
 		return
 	}
 	if err == nil && mode == "version" {
-		fmt.Println("statusbar-codex " + version)
+		fmt.Println("codex-usage " + version)
 		return
 	}
 	if err == nil {
@@ -331,7 +292,7 @@ func main() {
 		}
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "statusbar-codex:", strings.ReplaceAll(err.Error(), "\n", " "))
+		fmt.Fprintln(os.Stderr, "codex-usage:", strings.ReplaceAll(err.Error(), "\n", " "))
 		os.Exit(1)
 	}
 }

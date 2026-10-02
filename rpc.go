@@ -173,7 +173,7 @@ func (c *rpcClient) call(ctx context.Context, method string, params any, result 
 
 func (c *rpcClient) initialize(ctx context.Context) error {
 	err := c.call(ctx, "initialize", map[string]any{
-		"clientInfo":   map[string]string{"name": "statusbar-codex", "version": version},
+		"clientInfo":   map[string]string{"name": "codex-usage", "version": version},
 		"capabilities": map[string]any{"experimentalApi": false, "requestAttestation": false},
 	}, nil)
 	if err != nil {

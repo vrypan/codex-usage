@@ -123,7 +123,7 @@ func TestWatchReconnectsAndCancels(t *testing.T) {
 		}
 		output <- text.String()
 	}()
-	o := options{codex: script, stdout: true, interval: time.Minute, usageInterval: time.Minute, timeout: time.Second}
+	o := options{codex: script, interval: time.Minute, usageInterval: time.Minute, timeout: time.Second}
 	err = watch(ctx, o)
 	w.Close()
 	got := <-output
@@ -136,72 +136,8 @@ func TestWatchReconnectsAndCancels(t *testing.T) {
 		}
 	}
 }
-func TestSinkOwnershipAndDeduplication(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("STATUSBAR_STATE", filepath.Join(dir, "state"))
-	t.Setenv("STATUSBAR_SESSION_ID", "test")
-	t.Setenv("STATUSBAR_CODEX_TEST_LOG", filepath.Join(dir, "calls"))
-	t.Setenv("STATUSBAR_CODEX_TEST_GONE", filepath.Join(dir, "gone"))
-	t.Setenv("STATUSBAR_CODEX_TEST_CREATED", filepath.Join(dir, "created"))
-	t.Setenv("STATUSBAR_CODEX_TEST_REPLACED", filepath.Join(dir, "replaced"))
-	script := filepath.Join(dir, "statusbar")
-	text := `#!/bin/sh
-printf '%s\n' "$*" >> "$STATUSBAR_CODEX_TEST_LOG"
-case "$1" in
-push) touch "$STATUSBAR_CODEX_TEST_CREATED"; printf '/tmp/codex\n';;
-list) if [ -f "$STATUSBAR_CODEX_TEST_GONE" ] || [ ! -f "$STATUSBAR_CODEX_TEST_CREATED" ]; then printf '{"lines":[]}'; elif [ -f "$STATUSBAR_CODEX_TEST_REPLACED" ]; then printf '{"lines":[{"id":28,"name":"codex"}]}'; else printf '{"lines":[{"id":27,"name":"codex"}]}'; fi;;
-esac
-`
-	if err := os.WriteFile(script, []byte(text), 0700); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	o := options{statusbar: script}
-	unlock, err := acquireLock(o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = acquireLock(o); err == nil {
-		t.Fatal("duplicate helper accepted")
-	}
-	otherThread := o
-	otherThread.thread = "another-thread"
-	if _, err = acquireLock(otherThread); err == nil {
-		t.Fatal("a second helper could claim the same codex line")
-	}
-	unlock()
-	unlock, err = acquireLock(o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unlock()
-	s, err := newSink(ctx, o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.write(ctx, "hello"); err != nil {
-		t.Fatal(err)
-	}
-	_ = s.write(ctx, "hello")
-	if alive, err := s.alive(ctx); !alive || err != nil {
-		t.Fatal("line should be present")
-	}
-	_ = os.WriteFile(filepath.Join(dir, "replaced"), nil, 0600)
-	if alive, err := s.alive(ctx); alive || err != nil {
-		t.Fatal("a new line using the same name must not be adopted")
-	}
-	_ = os.WriteFile(filepath.Join(dir, "gone"), nil, 0600)
-	if alive, err := s.alive(ctx); alive || err != nil {
-		t.Fatal("removed line treated as present")
-	}
-	s.close()
-	calls, _ := os.ReadFile(filepath.Join(dir, "calls"))
-	if !strings.Contains(string(calls), "push codex --fifo --status normal") || strings.Count(string(calls), "set 27 hello --status normal") != 1 || !strings.Contains(string(calls), "pop 27") {
-		t.Fatal(string(calls))
-	}
-}
 func TestFlags(t *testing.T) {
-	for _, args := range [][]string{{"watch", "--interval", "0s"}, {"watch", "--json"}, {"snapshot", "--color", "purple"}, {"snapshot", "oops"}} {
+	for _, args := range [][]string{{"watch", "--interval", "0s"}, {"watch", "--json"}, {"watch", "--statusbar", "statusbar"}, {"watch", "--stdout"}, {"snapshot", "--color", "purple"}, {"snapshot", "oops"}} {
 		if _, _, err := parse(args); err == nil {
 			t.Fatal(fmt.Sprint(args))
 		}

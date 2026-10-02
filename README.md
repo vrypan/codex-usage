@@ -1,168 +1,102 @@
-# statusbar-codex
+# codex-usage
 
-Show Codex quota, credits, reset countdowns, and token usage in
-[statusbar](https://github.com/vrypan/statusbar).
-
-The value of the pushed line looks like this; your theme displays its `codex`
-name through `#(name)`:
+Read Codex quota windows, reset times, credit balances, earned resets, and token activity from your local Codex daemon. Output is plain text, ANSI-colored text, or JSON. The tool does not start a model request or change account settings.
 
 ```text
-5h ━━━─────── 32% used ↻2h14m  7d 61% used ↻3d4h  credits 120  resets 2  tokens lifetime 7.7M
+codex  5h ━━━─────── 32% used ↻2h14m  7d 61% used ↻3d4h  credits 120  resets 2  tokens lifetime 7.7M
 ```
 
-Example numbers only. Window durations come from Codex; an account may have
-one window, two windows, or several quota buckets.
+Example numbers only. The service decides which windows and quota buckets are available.
 
 ## Requirements
 
-- macOS or Linux; Go 1.23+ to build. The resulting binary has no runtime dependencies besides the CLIs below.
-- Codex CLI with `app-server proxy`, a running local daemon, and an existing login.
-  Developed against Codex CLI/daemon 0.160.0. The app-server interface is experimental.
-- statusbar with `push --fifo`, `set`, `list --short --json`, and `pop` for watch mode.
-- Account usage depends on Codex service support. API-key-only authentication may not expose ChatGPT quota or token activity.
+- macOS or Linux; Go 1.23+ to build. The binary uses only the Go standard library.
+- Codex CLI with `app-server proxy`, a running local daemon, and an existing login. Developed against Codex CLI/daemon 0.160.0. The app-server interface is experimental.
+- Some account usage fields require Codex service support. API-key-only authentication may not provide ChatGPT quota or token activity.
 
-## Build and try
+## Build and run
 
 ```sh
-go build -trimpath -o bin/statusbar-codex .
-./bin/statusbar-codex snapshot
-./bin/statusbar-codex snapshot --json
+go build -trimpath -o bin/codex-usage .
+./bin/codex-usage snapshot
+./bin/codex-usage snapshot --json
+./bin/codex-usage watch
 ```
 
-If Codex is not already running, launch Codex normally or explicitly start its
-daemon with `codex app-server daemon start`. The helper connects to an existing
-daemon; it does not start one, log in, or change Codex configuration.
+`snapshot` writes one reading and exits. `watch` keeps the connection open, polls periodically, and prints a new line when the displayed reading changes. Its initial line may say `disconnected` while it connects. Stop it with Ctrl-C. Both modes work in any shell; neither requires statusbar.
 
-Inside a statusbar session:
+If the Codex daemon is not running, start Codex normally or run `codex app-server daemon start`. This tool does not start a daemon or log in.
+
+### One thread's estimated usage
 
 ```sh
-/path/to/statusbar-codex/bin/statusbar-codex watch &
-helper_pid=$!
-
-# Stop the helper and remove its line:
-kill "$helper_pid"
+./bin/codex-usage snapshot --thread THREAD_ID --json
+./bin/codex-usage watch --thread THREAD_ID
 ```
 
-The helper creates a pushed line named `codex`. It looks up and keeps the line's
-numeric ID for updates and cleanup, so it cannot remove a later line that
-reuses the name. The FIFO path confirms the name without relying on terminal
-stdin; the FIFO is removed with the line. The line uses status `normal`, so the helper
-itself does not animate as a running job. Your theme's `[push]` template still
-applies. `--keep` leaves the last displayed line after shutdown. Removing the
-line manually causes the helper to exit rather than recreate it.
+Use an explicit thread ID. `account/usage/read` with `threadId` returns estimated thread token and credit usage when the thread's billing route is available. If every returned model group reports `totalTokens`, the tool sums those values; it does not add input and output components again. The live test account returned no estimate for the test thread, so unavailable values are shown as `—`. These figures are separate from context-window usage and account quota.
 
-`snapshot` and `watch --stdout` include a leading `codex` label because they
-have no pushed line name to display it.
-
-`watch --stdout` emits a new line only when its rendered content changes. This
-mode works outside statusbar and creates no statusbar lines.
-
-### Follow a particular thread
+### Options
 
 ```sh
-./bin/statusbar-codex snapshot --thread THREAD_ID --json
-./bin/statusbar-codex watch --thread THREAD_ID
+./bin/codex-usage watch --interval 60s --usage-interval 5m
+./bin/codex-usage snapshot --color always --width 100
+./bin/codex-usage snapshot --bucket codex --bars=false
+./bin/codex-usage snapshot --socket /absolute/path/to/app-server.sock
+./bin/codex-usage snapshot --codex /path/to/codex
+./bin/codex-usage snapshot --help
 ```
 
-Use the explicit Codex thread ID. The helper never guesses the active thread or
-resumes a conversation. It calls `account/usage/read` with `threadId` and labels
-the returned token and credit totals **estimated**. This endpoint depends on the
-server's support and the thread's billing route; unavailable data is shown as
-`—`. Thread mode is tested with protocol fixtures. Live account readings were
-verified; the live thread endpoint returned no estimate for the test thread.
-An eligible thread/account is required to receive estimates.
+By default, quota and thread usage refresh every minute in `watch`; account token activity refreshes every five minutes. Intervals must be at least five seconds. Each RPC call has a ten-second timeout (`--timeout`). `--color auto` adds ANSI colors on a terminal; use `--color always` for a consumer that supports ANSI. `--width` removes meters before clipping at a given width. Without a width, output is not clipped.
 
-Thread totals sum the reported per-group `totalTokens` only when every group
-has that field. Cached input and output components are available in JSON; they
-are not added again to the total. These figures are not context-window usage.
+Text selects the `codex` quota bucket if present, otherwise the first bucket in sorted order. `--bucket` selects another. JSON includes every returned bucket, independent timestamps, and any endpoint errors. A missing field appears as `—`, not zero.
 
-### Useful options
+## Example: statusbar theme
 
-```sh
-./bin/statusbar-codex watch --interval 60s --usage-interval 5m
-./bin/statusbar-codex watch --color never --bars=false --width 100
-./bin/statusbar-codex snapshot --bucket codex --json
-./bin/statusbar-codex snapshot --socket /absolute/path/to/app-server.sock
-./bin/statusbar-codex watch --codex /path/to/codex --statusbar /path/to/statusbar
-./bin/statusbar-codex watch --help
+A statusbar `[command]` can run the snapshot on its own schedule. No watcher or statusbar-specific integration is needed:
+
+```ini
+[line.codex]
+text = " #(command:codex)#(fill: )"
+
+[command.codex]
+run = /absolute/path/to/codex-usage/bin/codex-usage snapshot --color always
+interval = 60
 ```
 
-Default intervals: quota and thread usage every 60 seconds, account token
-activity every five minutes. Intervals must be at least five seconds. Each RPC
-has a ten-second timeout, configurable with `--timeout`.
+`statusbar` displays the first output line. The snapshot already includes the `codex` label. Adjust the path and interval in your theme. Other prompt or status tools can also consume the single-line or JSON output.
 
-Text selects the `codex` quota bucket if present, otherwise the first bucket in
-sorted order. `--bucket` selects another. JSON includes every returned bucket.
-`--width` removes meters before clipping to an explicit width; without it,
-statusbar handles clipping. Labels/metrics normally use single-cell Unicode;
-font choices and unusual bucket names can affect cell width. Increase width
-or disable meters to see more fields.
-
-## Meaning of the readings
+## Reading the values
 
 | Label | Meaning |
 | --- | --- |
 | `5h`, `7d`, etc. | Server-reported quota window duration |
-| `% used` | Usage of that quota window, not a percentage of token totals |
-| `↻` | Time until the server's reported reset timestamp |
-| `credits` | Reported balance, `unlimited`, `available` (balance unknown), or `—` (unavailable) |
-| `resets` | Available earned resets; independent of spendable credits |
-| `tokens lifetime` | Account-wide cumulative activity reported by Codex |
-| `thread est. tokens` | Estimated token activity for the selected thread |
-| `est. credits` | Estimated thread usage in credits, decoded from microcredits |
+| `% used` | Usage within that quota window; separate from token totals |
+| `↻` | Time until the reported reset timestamp |
+| `credits` | Reported balance, `unlimited`, `available` with unknown balance, or `—` |
+| `resets` | Available earned resets, separate from spendable credits |
+| `tokens lifetime` | Account cumulative token activity reported by Codex |
+| `thread est. tokens` | Estimated activity for the selected thread |
+| `est. credits` | Estimated thread credit usage decoded from microcredits |
 
-Credit balances are displayed as supplied, without conversion to currency.
-Zero is shown only when the balance or credit flags establish it. Optional
-fields remain unavailable instead of becoming zero. Token activity may lag.
-Daily account buckets and timestamps are retained in JSON using the dates
-supplied by the service; the helper does not assume a timezone for those dates.
+Credit balances stay in their reported units. Daily account buckets and timestamps remain in JSON using the dates supplied by the service. The tool does not assume a timezone for those dates. Meters use the terminal palette: green below 70%, yellow from 70%, and red from 90%.
 
-Thin meters use the terminal palette: green under 70%, yellow at 70%, red at
-90%. Percentages remain visible without color. The helper does not spend
-credits, redeem resets, send messages, or start model requests.
+## Behavior
 
-## Reliability and ownership
-
-- WebSocket handshake and masked frames travel through `codex app-server proxy`.
-  The proxy forwards raw bytes; it is not a JSONL-to-WebSocket adapter.
-- JSON-RPC begins with `initialize` and `initialized`.
-- Sparse quota notifications merge into the last full snapshot. They do not
-  renew the freshness timestamp for unrelated credit fields.
-- Notifications request a full refresh with a minimum five-second spacing.
-- Countdown text is recalculated locally; identical output is not republished.
-- Failed refreshes retain the last values and mark them stale. Expired reset
-  times say `refreshing`; usage is never assumed to have returned to zero.
-- Reconnects back off from one to 30 seconds. Account changes and reconnects
-  discard cached data before using the new connection.
-- One helper per statusbar session is enforced by a file lock because each
-  helper uses the `codex` line name.
-  `--stdout` has no lock. Small empty lock files remain beside statusbar's state
-  after shutdown to avoid inode races; they contain no credentials or usage.
-- Ctrl-C and SIGTERM close the proxy and remove only the helper's own line.
-  A force kill cannot clean up; remove the leftover line with `statusbar pop ID`.
-- Unsupported usage endpoints are shown as unavailable while supported fields
-  continue updating. JSON includes endpoint errors and independent timestamps.
+- Connects through `codex app-server proxy`. The proxy tunnels WebSocket bytes, so the tool handles the WebSocket handshake and masking before JSON-RPC initialization.
+- Merges sparse quota notifications into the last full snapshot without making unrelated credit fields appear fresh. Requests a full refresh after notifications, with a minimum five-second spacing.
+- Recalculates reset countdowns locally. An expired deadline reads `refreshing` until the server supplies another value.
+- Keeps old values after a failed refresh and marks them stale. Reconnects back off from one to 30 seconds. Account changes and reconnects clear cached values.
+- Never spends credits, redeems resets, sends messages, or starts inference.
 
 ## Development
 
 ```sh
 go test -race ./...
 go vet ./...
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/statusbar-codex-linux .
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/codex-usage-linux .
 ```
 
-No third-party Go packages. Tests cover WebSocket framing and ping/pong,
-RPC response routing and timeouts, sparse updates, account changes, missing
-fields, estimated thread totals, ANSI formatting, reconnects, duplicate-helper
-locks, and statusbar line ownership/cleanup.
+Tests cover WebSocket framing, JSON-RPC routing, timeouts, sparse updates, account switches, unavailable fields, estimates, formatting, and reconnects. No third-party Go packages are required.
 
-`rpc.go` and `websocket.go` handle transport, `model.go` holds snapshots,
-`render.go` formats text, `sink.go` owns the statusbar line, and `main.go`
-coordinates polling and reconnects.
-
-Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server).
-The local schema can be regenerated for compatibility checks with:
-
-```sh
-codex app-server generate-ts --out /tmp/codex-protocol
-```
+Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server). The local schema can be regenerated with `codex app-server generate-ts --out /tmp/codex-protocol`.

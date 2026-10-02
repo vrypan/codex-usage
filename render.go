@@ -149,18 +149,11 @@ func stale(at *time.Time, failure bool, now time.Time, interval time.Duration) s
 }
 func render(s state, opts options, now time.Time) string {
 	b, id := s.Limits.selectBucket(opts.bucket)
-	parts := make([]string, 0, 8)
-	if opts.embedded {
-		if id != "" && id != "codex" {
-			parts = append(parts, paint(clean(id), 35, opts.color))
-		}
-	} else {
-		prefix := paint("codex", 34, opts.color)
-		if id != "" && id != "codex" {
-			prefix += "/" + clean(id)
-		}
-		parts = append(parts, prefix)
+	prefix := paint("codex", 34, opts.color)
+	if id != "" && id != "codex" {
+		prefix += "/" + clean(id)
 	}
+	parts := []string{prefix}
 	if b == nil {
 		parts = append(parts, "quota —", "credits —")
 	} else {

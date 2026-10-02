@@ -1,6 +1,6 @@
 .PHONY: build test check
 build:
-	go build -trimpath -o bin/statusbar-codex .
+	go build -trimpath -o bin/codex-usage .
 test:
 	go test -race ./...
 check:
