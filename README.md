@@ -14,10 +14,24 @@ Example numbers only. The service decides which windows and quota buckets are av
 - Codex CLI with `app-server proxy`, a running local daemon, and an existing login. Developed against Codex CLI/daemon 0.160.0. The app-server interface is experimental.
 - Some account usage fields require Codex service support. API-key-only authentication may not provide ChatGPT quota or token activity.
 
+## Install
+
+Download a prebuilt binary (macOS arm64, Linux amd64/arm64) from the
+[releases page](https://github.com/vrypan/codex-usage/releases), extract it, and put
+`codex-usage` on your `PATH`. Verify the download against `checksums.txt`.
+
+Or install with Go:
+
+```sh
+go install github.com/vrypan/codex-usage@latest
+```
+
+`codex-usage version` prints the version, commit, and build date.
+
 ## Build and run
 
 ```sh
-go build -trimpath -o bin/codex-usage .
+make build          # optimized build with version info, written to bin/
 ./bin/codex-usage snapshot
 ./bin/codex-usage snapshot --json
 ./bin/codex-usage watch

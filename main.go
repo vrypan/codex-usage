@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
-
 type options struct {
 	codex, socket, bucket, thread    string
 	interval, usageInterval, timeout time.Duration
@@ -32,8 +30,8 @@ func parse(args []string) (string, options, error) {
 		fmt.Println("Usage: codex-usage <snapshot|watch|version> [options]\n\nSnapshot reads Codex usage; watch prints updates.\nUse snapshot --help or watch --help for options.")
 		return "", o, flag.ErrHelp
 	}
-	if mode == "version" {
-		return mode, o, nil
+	if mode == "version" || mode == "--version" || mode == "-v" {
+		return "version", o, nil
 	}
 	if mode != "snapshot" && mode != "watch" {
 		return "", o, errors.New("expected snapshot, watch, or version")
@@ -274,12 +272,13 @@ func watch(ctx context.Context, o options) error {
 	}
 }
 func main() {
+	resolveVersion()
 	mode, o, err := parse(os.Args[1:])
 	if errors.Is(err, flag.ErrHelp) {
 		return
 	}
 	if err == nil && mode == "version" {
-		fmt.Println("codex-usage " + version)
+		fmt.Println(versionString())
 		return
 	}
 	if err == nil {
