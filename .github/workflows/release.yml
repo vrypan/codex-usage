@@ -24,3 +24,11 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew-formula:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    uses: ./.github/workflows/update-homebrew-formula.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

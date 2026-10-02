@@ -16,7 +16,13 @@ Example numbers only. The service decides which windows and quota buckets are av
 
 ## Install
 
-Download a prebuilt binary (macOS arm64, Linux amd64/arm64) from the
+With Homebrew (builds from the tagged source):
+
+```sh
+brew install vrypan/tap/codex-usage
+```
+
+Or download a prebuilt binary (macOS arm64, Linux amd64/arm64) from the
 [releases page](https://github.com/vrypan/codex-usage/releases), extract it, and put
 `codex-usage` on your `PATH`. Verify the download against `checksums.txt`.
 
