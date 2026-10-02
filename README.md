@@ -40,9 +40,10 @@ helper_pid=$!
 kill "$helper_pid"
 ```
 
-The helper creates an unnamed line, keeps its numeric ID, and updates that ID.
-It temporarily binds a FIFO to obtain the ID without relying on terminal stdin;
-the FIFO is removed with the line. The line uses status `normal`, so the helper
+The helper creates a pushed line named `codex`. It looks up and keeps the line's
+numeric ID for updates and cleanup, so it cannot remove a later line that
+reuses the name. The FIFO path confirms the name without relying on terminal
+stdin; the FIFO is removed with the line. The line uses status `normal`, so the helper
 itself does not animate as a running job. Your theme's `[push]` template still
 applies. `--keep` leaves the last displayed line after shutdown. Removing the
 line manually causes the helper to exit rather than recreate it.
@@ -127,7 +128,8 @@ credits, redeem resets, send messages, or start model requests.
   times say `refreshing`; usage is never assumed to have returned to zero.
 - Reconnects back off from one to 30 seconds. Account changes and reconnects
   discard cached data before using the new connection.
-- One helper per statusbar session/socket/thread is enforced by a file lock.
+- One helper per statusbar session is enforced by a file lock because each
+  helper uses the `codex` line name.
   `--stdout` has no lock. Small empty lock files remain beside statusbar's state
   after shutdown to avoid inode races; they contain no credentials or usage.
 - Ctrl-C and SIGTERM close the proxy and remove only the helper's own line.

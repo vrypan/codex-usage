@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -184,15 +183,14 @@ func acquireLock(o options) (func(), error) {
 	if path == "" {
 		return nil, errors.New("watch must run inside statusbar; use --stdout for text output")
 	}
-	key := sha256.Sum256([]byte(o.socket + "\x00" + o.thread))
-	// Keep lock files beside statusbar's own private state, not in the repository.
-	f, err := os.OpenFile(fmt.Sprintf("%s.codex-%x.lock", path, key[:8]), os.O_CREATE|os.O_RDWR, 0600)
+	// One named codex line can be owned by only one helper in this session.
+	f, err := os.OpenFile(path+".codex.lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
 	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, errors.New("a helper for this account/thread is already running in this statusbar session")
+		return nil, errors.New("a codex line helper is already running in this statusbar session")
 	}
 	// Do not unlink: another process could already hold the same inode open.
 	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }, nil

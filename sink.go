@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,13 @@ type sink struct {
 	stdout   bool
 	keep     bool
 }
+
+type statusbarLine struct {
+	ID   uint64 `json:"id"`
+	Name string `json:"name"`
+}
+
+const codexLineName = "codex"
 
 func runStatusbar(ctx context.Context, binary string, args ...string) ([]byte, error) {
 	call, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -37,19 +45,28 @@ func newSink(ctx context.Context, o options) (*sink, error) {
 	if os.Getenv("STATUSBAR_STATE") == "" || os.Getenv("STATUSBAR_SESSION_ID") == "" {
 		return nil, errors.New("watch must run inside statusbar; use --stdout for text output")
 	}
-	// An unnamed line gives us its immutable numeric ID immediately. Avoid name
-	// collisions and never adopt or delete a line belonging to another process.
-	fifo, err := runStatusbar(ctx, s.binary, "push", "--fifo", "--status", "normal")
+	// Check support for line listing before creating anything.
+	if _, err := s.lines(ctx); err != nil {
+		return nil, err
+	}
+	fifo, err := runStatusbar(ctx, s.binary, "push", codexLineName, "--fifo", "--status", "normal")
 	if err != nil {
 		return nil, err
 	}
-	path := strings.TrimSpace(string(fifo))
-	slash := strings.LastIndex(path, "/")
-	s.id = path[slash+1:]
-	if _, err = strconv.ParseUint(s.id, 10, 64); err != nil {
-		return nil, errors.New("statusbar push returned an invalid line ID")
+	if filepath.Base(strings.TrimSpace(string(fifo))) != codexLineName {
+		return nil, errors.New("statusbar push returned an unexpected FIFO path")
 	}
-	return s, nil
+	lines, err := s.lines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range lines {
+		if line.Name == codexLineName {
+			s.id = strconv.FormatUint(line.ID, 10)
+			return s, nil
+		}
+	}
+	return nil, errors.New("statusbar did not list the new codex line")
 }
 func (s *sink) write(ctx context.Context, text string) error {
 	if text == s.previous {
@@ -67,23 +84,28 @@ func (s *sink) write(ctx context.Context, text string) error {
 	s.previous = text
 	return nil
 }
+func (s *sink) lines(ctx context.Context) ([]statusbarLine, error) {
+	data, err := runStatusbar(ctx, s.binary, "list", "--short", "--json")
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Lines []statusbarLine `json:"lines"`
+	}
+	if json.Unmarshal(data, &list) != nil {
+		return nil, errors.New("statusbar list returned invalid JSON; update statusbar to a version supporting list --short --json")
+	}
+	return list.Lines, nil
+}
 func (s *sink) alive(ctx context.Context) (bool, error) {
 	if s.stdout {
 		return true, nil
 	}
-	data, err := runStatusbar(ctx, s.binary, "list", "--short", "--json")
+	lines, err := s.lines(ctx)
 	if err != nil {
 		return false, err
 	}
-	var list struct {
-		Lines []struct {
-			ID uint64 `json:"id"`
-		} `json:"lines"`
-	}
-	if json.Unmarshal(data, &list) != nil {
-		return false, errors.New("statusbar list returned invalid JSON; update statusbar to a version supporting list --short --json")
-	}
-	for _, l := range list.Lines {
+	for _, l := range lines {
 		if strconv.FormatUint(l.ID, 10) == s.id {
 			return true, nil
 		}
