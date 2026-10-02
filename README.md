@@ -114,3 +114,7 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/codex-usage-linux .
 Tests cover WebSocket framing, JSON-RPC routing, timeouts, sparse updates, account switches, unavailable fields, estimates, formatting, and reconnects. No third-party Go packages are required.
 
 Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server). The local schema can be regenerated with `codex app-server generate-ts --out /tmp/codex-protocol`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
