@@ -72,6 +72,18 @@ func TestRenderMeaningAndStaleness(t *testing.T) {
 		t.Fatal("expired reset was not labeled")
 	}
 }
+func TestNamedLineOmitsDuplicateName(t *testing.T) {
+	s := sample(t)
+	o := options{embedded: true, interval: time.Minute, usageInterval: 5 * time.Minute}
+	got := render(s, o, time.Unix(30000, 0))
+	if strings.HasPrefix(got, "codex") || !strings.HasPrefix(got, "5h ") {
+		t.Fatal(got)
+	}
+	o.embedded = false
+	if got := render(s, o, time.Unix(30000, 0)); !strings.HasPrefix(got, "codex  5h ") {
+		t.Fatal(got)
+	}
+}
 func TestCreditsAndMissingValues(t *testing.T) {
 	for _, tc := range []struct {
 		c    *credits

@@ -3,8 +3,11 @@
 Show Codex quota, credits, reset countdowns, and token usage in
 [statusbar](https://github.com/vrypan/statusbar).
 
+The value of the pushed line looks like this; your theme displays its `codex`
+name through `#(name)`:
+
 ```text
-codex  5h ━━━─────── 32% used ↻2h14m  7d 61% used ↻3d4h  credits 120  resets 2  tokens lifetime 7.7M
+5h ━━━─────── 32% used ↻2h14m  7d 61% used ↻3d4h  credits 120  resets 2  tokens lifetime 7.7M
 ```
 
 Example numbers only. Window durations come from Codex; an account may have
@@ -47,6 +50,9 @@ stdin; the FIFO is removed with the line. The line uses status `normal`, so the 
 itself does not animate as a running job. Your theme's `[push]` template still
 applies. `--keep` leaves the last displayed line after shutdown. Removing the
 line manually causes the helper to exit rather than recreate it.
+
+`snapshot` and `watch --stdout` include a leading `codex` label because they
+have no pushed line name to display it.
 
 `watch --stdout` emits a new line only when its rendered content changes. This
 mode works outside statusbar and creates no statusbar lines.

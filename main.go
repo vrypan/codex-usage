@@ -19,6 +19,7 @@ type options struct {
 	codex, statusbar, socket, bucket, thread string
 	interval, usageInterval, timeout         time.Duration
 	color, bars, stdout, keep, json          bool
+	embedded                                 bool
 	width                                    int
 }
 
@@ -206,6 +207,7 @@ func watch(ctx context.Context, o options) error {
 		return err
 	}
 	defer output.close()
+	o.embedded = !output.stdout
 	s := state{}
 	var c *rpcClient
 	defer func() {
